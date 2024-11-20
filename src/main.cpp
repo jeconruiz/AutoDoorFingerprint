@@ -7,25 +7,25 @@
 
 const byte interruptPin = 2;
 int led_Rojo = 12, led_Verde = 8, buzzer = 5, base = 7; // Salidas de los led y buzzer
-int fingerID;                                           // Almacenamiento de último ID de huella
-bool awakeFlag = false;
+bool awakeFlag = true;
+uint16_t fid, score = 0;      // fingerID, confidence
+
 SoftwareSerial fserial(4, 3); // Arduino #4 RX <==> Sensor TX; Arduino #3 TX <==> Sensor RX
 FPM finger(&fserial);
+
 /* for convenience */
 #define PRINTF_BUF_SZ 60
 char printfBuf[PRINTF_BUF_SZ];
 
 // Functions
-bool searchDatabase(void);
+bool searchDatabase();
 void wakeUp();
-void fingerParams(void);
-void melody(String);
+void fingerParams();
+void melody(int);
+
 
 void setup()
 {
-  Serial.println("SETUP");                                          // Debug
-  Serial.println("=============================================="); // Debug
-
   Serial.begin(57600);
   fserial.begin(57600); // Inicializa comunicación con el sensor
 
@@ -34,91 +34,75 @@ void setup()
   pinMode(base, OUTPUT);
   pinMode(interruptPin, INPUT);
 
-  Serial.println("Lector de huellas inicilizando");
+  Serial.println("Inicializando lector de huellas");
   delay(250); // Dejar al menos 200ms para inicializar
 
   if (finger.begin())
   {
     fingerParams();
     digitalWrite(led_Verde, HIGH);
-    melody("ok");
+    melody(0);
     digitalWrite(led_Verde, LOW);
   }
   else
   {
     Serial.println("Did not find fingerprint sensor :(");
     digitalWrite(led_Rojo, HIGH);
-    melody("wrong");
+    melody(-1);
     while (1)
       yield();
   }
 
-  attachInterrupt(0, wakeUp, FALLING);                              // Accion de interrupción 0
-  Serial.println("SETUP/INTERRUPT");                                // Debug
-  Serial.println("=============================================="); // Debug
+  attachInterrupt(0, wakeUp, FALLING); // Accion de interrupción 0
 }
 
 void loop()
 {
-  Serial.println("LOOP");                                           // Debug
-  Serial.println("=============================================="); // Debug
   if (awakeFlag)
   {
+    awakeFlag = false;
     // Rutina de apertura
-    if (searchDatabase())
+    if (searchDatabase() && score > 100)
     {
-      Serial.println("LOOP/IF");                                        // Debug
-      Serial.println("=============================================="); // Debug
       digitalWrite(led_Verde, HIGH);
-      melody("ok");
+      melody(0);
       digitalWrite(led_Verde, LOW);
       // Abrir puerta
-      Serial.print("Abriiendo... "); // Debug
       digitalWrite(base, HIGH);
-      delay(1000);
-      Serial.println("¡Abierto!"); // Debug
+      delay(3000);
       digitalWrite(base, LOW);
-      awakeFlag = false;
+      score = 0;
     }
-    awakeFlag = false;
+    else
+    {
+      digitalWrite(led_Rojo, HIGH);
+      melody(-1);
+      digitalWrite(led_Rojo, LOW);
+    }
   }
 
-  Serial.println("PRE-SLEEP");                                      // Debug
-  Serial.println("=============================================="); // Debug
-  delay(200);
-  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF); // Zzzzzzz.....
-
-  /*
-    Serial.println("\r\nSend any character to search for a print...");
-    while (Serial.available() == 0)
-      yield();
-
-    searchDatabase();
-
-    while (Serial.read() != -1)
-      ;
-      */
+    delay(200);                                          // Espera breve antes de entrar en reposo
+    LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF); // Zzzzzzz.....
 }
 
-bool searchDatabase(void)
+// Captura y búsqueda de huella ===============================================================
+bool searchDatabase()
 {
-  Serial.println("SEARDATABASE");                                   // Debug
-  Serial.println("=============================================="); // Debug
   FPMStatus status;
+  uint8_t intentos = 0;
 
-  /* Take a snapshot of the input finger */
-  uint8_t tries = 0;
+  /* Toma una imagen del dedo posicionado*/
   do
   {
     status = finger.getImage();
-    tries++;
-    Serial.print("Lectura de huella. Intento: ");
-    Serial.println(tries);
+    intentos++;
+    Serial.print("Intento de lectura de huella numero: "); // Máx. 5 intentos
+    Serial.println(intentos);
 
     switch (status)
     {
     case FPMStatus::OK:
-      Serial.println("Image taken");
+      Serial.println("Imagen adquirida.");
       break;
 
     case FPMStatus::NOFINGER:
@@ -126,22 +110,22 @@ bool searchDatabase(void)
       break;
 
     default:
-      /* allow retries even when an error happens */
+      /* permite reintentos incluso cuando ocurre un error */
       snprintf(printfBuf, PRINTF_BUF_SZ, "getImage(): error 0x%X", static_cast<uint16_t>(status));
       Serial.println(printfBuf);
       break;
     }
 
-    yield();
-  } while (status != FPMStatus::OK || tries > 5);
+    yield(); // Solo para ESP32
+  } while (status != FPMStatus::OK && intentos < 5);
 
-  /* Extract the fingerprint features */
+  /* Extraer las características de la huella digital */
   status = finger.image2Tz();
 
   switch (status)
   {
   case FPMStatus::OK:
-    Serial.println("Image converted");
+    Serial.println("Imagen convertida.");
     break;
 
   default:
@@ -150,19 +134,19 @@ bool searchDatabase(void)
     return false;
   }
 
-  /* Search the database for the converted print */
-  uint16_t fid, score;
+  /* Busca en la base de datos la imagen convertida */
+  // uint16_t fid, score; // fingerID, confidence -> Se pasa a variable global
   status = finger.searchDatabase(&fid, &score);
 
   switch (status)
   {
   case FPMStatus::OK:
-    snprintf(printfBuf, PRINTF_BUF_SZ, "Found a match at ID #%u with confidence %u", fid, score);
+    snprintf(printfBuf, PRINTF_BUF_SZ, "Coincidencia con ID #%u y fiabilidad %u.", fid, score);
     Serial.println(printfBuf);
     break;
 
   case FPMStatus::NOTFOUND:
-    Serial.println("Did not find a match.");
+    Serial.println("No se han encontrado coincidencias.");
     return false;
 
   default:
@@ -185,32 +169,14 @@ bool searchDatabase(void)
   return true;
 }
 
-// Función al despertar=========================================================================
+// Función al despertar========================================================================
 void wakeUp()
 {
-  Serial.println("WAKEUP");                                         // Debug
-  Serial.println("=============================================="); // Debug
   awakeFlag = true;
-  Serial.println("Awake!"); // BORRAR: depuración
-
-  /*
-  fingerID = getFingerprintIDez();
-  if (fingerID)
-  { // Huella encontrada
-    digitalWrite(led_Verde, HIGH);
-    okSound();
-    digitalWrite(led_Verde, LOW);
-    verify_User();
-  }
-  else
-  { // Lectura errónea o huella no coincide
-    digitalWrite(led_Rojo, HIGH);
-    wrongSound();
-    digitalWrite(led_Rojo, LOW);
-  }
-  */
 }
-void fingerParams(void)
+
+// Inicializar sensor =========================================================================
+void fingerParams()
 {
   FPMSystemParams params;
 
@@ -232,15 +198,13 @@ void fingerParams(void)
   Serial.println(static_cast<uint16_t>(params.baudRate));
 }
 
-void melody(String melodia)
+// Melodías del buzzer ========================================================================
+void melody(int melodia)
 {
-  Serial.println("MELODY");                                         // Debug
-  Serial.println("=============================================="); // Debug
-  Serial.print("Sonando ");
-  if (melodia == "ok")
+  if (melodia == 0)
   {
     Serial.println(melodia);
-    // tone(buzzer, NOTE_A7);
+    // antes -> tone(buzzer, NOTE_A7);
     tone(buzzer, NOTE_C6);
     delay(100);
     noTone(buzzer);
@@ -249,17 +213,17 @@ void melody(String melodia)
     delay(100);
     noTone(buzzer);
   }
-  else if (melodia == "wrong")
+  else if (melodia == -1)
   {
     Serial.println(melodia);
-    // tone(buzzer, NOTE_C7);
+    // antes -> tone(buzzer, NOTE_C7);
     tone(buzzer, NOTE_G6);
     delay(100);
     noTone(buzzer);
     delay(100);
-    // tone(buzzer, NOTE_C7);
+    // antes -> tone(buzzer, NOTE_C7);
     tone(buzzer, NOTE_C6);
-    delay(100);
+    delay(300);
     noTone(buzzer);
   }
 }
