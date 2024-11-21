@@ -203,7 +203,6 @@ void melody(int melodia)
 {
   if (melodia == 0)
   {
-    Serial.println(melodia);
     // antes -> tone(buzzer, NOTE_A7);
     tone(buzzer, NOTE_C6);
     delay(100);
@@ -215,7 +214,6 @@ void melody(int melodia)
   }
   else if (melodia == -1)
   {
-    Serial.println(melodia);
     // antes -> tone(buzzer, NOTE_C7);
     tone(buzzer, NOTE_G6);
     delay(100);
