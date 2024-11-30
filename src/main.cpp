@@ -8,7 +8,7 @@
 const byte interruptPin = 2;
 int led_Rojo = 12, led_Verde = 8, buzzer = 5, base = 7; // Salidas de los led y buzzer
 bool awakeFlag = true;
-uint16_t fid, score = 0;      // fingerID, confidence
+uint16_t fid, score = 0; // fingerID, confidence
 
 SoftwareSerial fserial(4, 3); // Arduino #4 RX <==> Sensor TX; Arduino #3 TX <==> Sensor RX
 FPM finger(&fserial);
@@ -22,7 +22,6 @@ bool searchDatabase();
 void wakeUp();
 void fingerParams();
 void melody(int);
-
 
 void setup()
 {
@@ -81,8 +80,8 @@ void loop()
     }
   }
 
-    delay(200);                                          // Espera breve antes de entrar en reposo
-    LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF); // Zzzzzzz.....
+  delay(200);                                          // Espera breve antes de entrar en reposo
+  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF); // Zzzzzzz.....
 }
 
 // Captura y búsqueda de huella ===============================================================
@@ -203,23 +202,29 @@ void melody(int melodia)
 {
   if (melodia == 0)
   {
-    // antes -> tone(buzzer, NOTE_A7);
+    // Melodía para estado correcto
     tone(buzzer, NOTE_C6);
-    delay(100);
+    delay(75);
     noTone(buzzer);
-    delay(50);
+    delay(37);
+    tone(buzzer, NOTE_E6);
+    delay(75);
+    noTone(buzzer);
+    delay(37);
     tone(buzzer, NOTE_G6);
-    delay(100);
+    delay(75);
+    noTone(buzzer);
+    tone(buzzer, NOTE_C7);
+    delay(200);
     noTone(buzzer);
   }
   else if (melodia == -1)
   {
-    // antes -> tone(buzzer, NOTE_C7);
+    // Melodía para error
     tone(buzzer, NOTE_G6);
     delay(100);
     noTone(buzzer);
     delay(100);
-    // antes -> tone(buzzer, NOTE_C7);
     tone(buzzer, NOTE_C6);
     delay(300);
     noTone(buzzer);
